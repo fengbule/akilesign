@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AkileCloud 签到中心</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section id="loginView" class="login-card hidden">
+      <div class="brand-mark">AK</div>
+      <p class="eyebrow">PRIVATE CONSOLE</p>
+      <h1>AkileCloud 签到中心</h1>
+      <p class="muted">使用 VPS 上配置的管理密码登录。</p>
+      <form id="loginForm">
+        <label>管理密码<input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">进入面板</button>
+      </form>
+      <p id="loginError" class="error"></p>
+    </section>
+
+    <section id="appView" class="hidden">
+      <header>
+        <div><p class="eyebrow">AKILE AUTOMATION</p><h1>签到控制台</h1></div>
+        <div class="header-actions"><span id="scheduleBadge" class="pill"></span><button id="logoutBtn" class="ghost">退出</button></div>
+      </header>
+
+      <div class="stats">
+        <article><span>已绑定</span><strong id="accountCount">0</strong><small>个账号</small></article>
+        <article><span>登录有效</span><strong id="validCount">0</strong><small>个账号</small></article>
+        <article><span>今日成功</span><strong id="successCount">0</strong><small>个账号</small></article>
+        <article><span>需要处理</span><strong id="errorCount">0</strong><small>个账号</small></article>
+      </div>
+
+      <section class="panel bind-panel">
+        <div class="panel-heading"><div><p class="eyebrow">BIND ACCOUNT</p><h2>绑定已有账号</h2></div></div>
+        <form id="addForm" class="add-form">
+          <label>账号备注<input id="label" maxlength="80" placeholder="例如：我的主账号" required></label>
+          <label class="token-field">akile-token<input id="token" type="password" autocomplete="off" placeholder="只在提交时传输，服务器端加密保存" required></label>
+          <button class="primary" type="submit">验证并绑定</button>
+        </form>
+        <p class="hint">仅绑定你本人或已获授权的账号。令牌不会在网页中再次显示。</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">ACCOUNTS</p><h2>账号状态</h2></div><button id="refreshBtn" class="ghost">刷新</button></div>
+        <div id="accountList" class="account-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">ACTIVITY</p><h2>最近运行记录</h2></div></div>
+        <div id="logList" class="log-list"></div>
+      </section>
+    </section>
+  </main>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
