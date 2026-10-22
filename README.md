@@ -2,6 +2,8 @@
 
 一个面向自有或已授权账号的自托管签到面板。支持账号绑定、加密令牌存储、每天自动签到、手动执行、失败重试、状态与日志查看。
 
+完整部署、实际验证过程、迁移备份和排障见 [部署与 AI 交接说明](docs/DEPLOYMENT.md)。接手本项目的 AI 请先阅读 [AGENTS.md](AGENTS.md)。
+
 ## 已实现
 
 - 外部 Web UI，管理密码和登录限速保护
@@ -16,12 +18,12 @@
 
 ## 最简 VPS 部署
 
-要求：一台已安装 Docker Engine 与 Docker Compose 插件的 Linux VPS。推荐准备一个域名，并把域名 A/AAAA 记录解析到 VPS。
+要求：一台已安装 Git、Docker Engine、Docker Compose 插件和 OpenSSL 的 Linux VPS，宿主机无需安装 Node。推荐准备一个域名，并把域名 A/AAAA 记录解析到 VPS。
 
 ```bash
-cd akile-checkin-service
-chmod +x deploy.sh
-./deploy.sh
+git clone --branch main https://github.com/fengbule/akilesign.git
+cd akilesign
+sh deploy.sh
 ```
 
 脚本会询问访问域名和面板管理密码，随后生成随机加密密钥并启动服务。域名模式下 Caddy 会自动申请 HTTPS 证书。临时测试可输入 `http://服务器IP`，但 HTTP 会以明文传输管理密码和账号令牌，只应短时使用；正式使用必须换成域名 HTTPS。
@@ -39,14 +41,18 @@ chmod +x deploy.sh
 
 ## InstaBox 部署
 
-在 InstaBox 的 `/data/workspace` 克隆项目后执行：
+在新的 InstaBox 中执行：
 
 ```bash
-cd /data/workspace/akilesign
+cd /data/workspace
+git clone --branch main https://github.com/fengbule/akilesign.git
+cd akilesign
 sh deploy.sh --instabox
 ```
 
 使用 `docker-compose.instabox.yml` 启动 Node 24 容器，数据保存在项目的 `data/`，通过 `instabox-port publish 3000` 获取 HTTPS 地址。此模式由 InstaBox 转发端口，不需要域名或 Caddy；云主机需保持运行。
+
+InstaBox 保活和 Komari 监控是独立服务，不由本脚本安装，配置与验收方式见完整部署说明。
 
 脚本会将浏览器访问地址记录为 `PUBLIC_ORIGIN`，供来源检查使用。其他反向代理若改写 Host，也应设置这一项；迁移到新域名后需同步更新。
 
