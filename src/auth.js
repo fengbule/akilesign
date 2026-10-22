@@ -39,6 +39,8 @@ export function verifySession(value, secret) {
 export function cookies(header = '') {
   return Object.fromEntries(String(header).split(';').map(part => {
     const index = part.indexOf('=');
-    return index < 0 ? ['', ''] : [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())];
+    if (index < 0) return ['', ''];
+    try { return [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())]; }
+    catch { return ['', '']; }
   }).filter(([key]) => key));
 }

@@ -33,7 +33,9 @@ function showApp() {
 
 function formatTime(value) {
   if (!value) return '尚未运行';
-  return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'medium' }).format(new Date(value));
+  return new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'short', timeStyle: 'medium', timeZone: state.status?.timezone || 'Asia/Shanghai'
+  }).format(new Date(value));
 }
 
 function statusLabel(status) {
@@ -48,7 +50,9 @@ function renderAccounts() {
   const list = $('#accountList');
   $('#accountCount').textContent = state.accounts.length;
   $('#validCount').textContent = state.accounts.filter(a => a.authStatus === 'valid').length;
-  $('#successCount').textContent = state.accounts.filter(a => ['success', 'already'].includes(a.status)).length;
+  $('#successCount').textContent = state.accounts.filter(a => a.lastSuccessAt &&
+    new Intl.DateTimeFormat('en-CA', { timeZone: state.status.timezone, year: 'numeric', month: '2-digit', day: '2-digit' })
+      .format(new Date(a.lastSuccessAt)) === state.status.currentDate).length;
   $('#errorCount').textContent = state.accounts.filter(a => a.status === 'error').length;
   if (!state.accounts.length) {
     list.innerHTML = '<div class="empty">还没有账号。请在上方粘贴账号的 akile-token。</div>';
@@ -58,7 +62,7 @@ function renderAccounts() {
     <article class="account-card" data-id="${account.id}">
       <div class="account-main">
         <span class="status-dot is-${account.status}"></span>
-        <div><h3>${escapeHtml(account.label)}</h3><p>${escapeHtml(account.username || '待验证账号')} · ${account.coinTotal ?? '—'} AK币</p><div class="auth-line"><span class="auth-tag is-${account.authStatus}">${authLabel(account.authStatus)}</span><small>上次验证：${formatTime(account.lastValidatedAt)}</small></div></div>
+        <div><h3>${escapeHtml(account.label)}</h3><p>${escapeHtml(account.username || (account.authStatus === 'valid' ? '已验证账号' : '待验证账号'))} · ${account.coinTotal ?? '—'} AK币</p><div class="auth-line"><span class="auth-tag is-${account.authStatus}">${authLabel(account.authStatus)}</span><small>上次验证：${formatTime(account.lastValidatedAt)}</small></div></div>
       </div>
       <div class="account-result"><span class="status-tag is-${account.status}">${statusLabel(account.status)}</span><p>${escapeHtml(account.lastMessage || '等待首次运行')}</p><small>上次签到：${formatTime(account.lastRunAt)}</small><small>令牌到期：${formatTime(account.tokenExpiresAt)}</small></div>
       <div class="account-actions">

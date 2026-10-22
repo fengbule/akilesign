@@ -1,7 +1,6 @@
 import { encryptToken, decryptToken } from './token-crypto.js';
 import { publicAccount } from './database.js';
-
-function isoNow() { return new Date().toISOString(); }
+import { jwtExpiry } from './akile-client.js';
 
 function localParts(timezone, date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -14,18 +13,21 @@ function localParts(timezone, date = new Date()) {
 }
 
 export class CheckinService {
-  constructor({ db, client, encryptionKey, timezone, checkinTime }) {
+  constructor({ db, client, encryptionKey, timezone, checkinTime, clock = () => new Date() }) {
     this.db = db;
     this.client = client;
     this.encryptionKey = encryptionKey;
     this.timezone = timezone;
     this.checkinTime = checkinTime;
     this.running = new Set();
+    this.clock = clock;
   }
+
+  isoNow() { return this.clock().toISOString(); }
 
   log(accountId, level, event, message) {
     this.db.prepare('INSERT INTO logs(account_id, level, event, message, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(accountId, level, event, String(message).slice(0, 1000), isoNow());
+      .run(accountId, level, event, String(message).slice(0, 1000), this.isoNow());
   }
 
   listAccounts() {
@@ -43,7 +45,7 @@ export class CheckinService {
     if (cleanToken.length < 20) throw new Error('令牌格式不正确');
     const profile = await this.client.validateToken(cleanToken);
     const encrypted = encryptToken(cleanToken, this.encryptionKey);
-    const now = isoNow();
+    const now = this.isoNow();
     const result = this.db.prepare(`
       INSERT INTO accounts(label, username, token_ciphertext, token_iv, token_tag, coin_total, auth_status, token_expires_at, last_validated_at, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, 'valid', ?, ?, ?, ?)
@@ -58,15 +60,15 @@ export class CheckinService {
     const cleanToken = String(token || '').trim();
     const profile = await this.client.validateToken(cleanToken);
     const encrypted = encryptToken(cleanToken, this.encryptionKey);
-    const now = isoNow();
-    this.db.prepare(`UPDATE accounts SET username=?, token_ciphertext=?, token_iv=?, token_tag=?, coin_total=?, auth_status='valid', token_expires_at=?, last_validated_at=?, status='ready', last_message='', updated_at=? WHERE id=?`)
+    const now = this.isoNow();
+    this.db.prepare(`UPDATE accounts SET username=?, token_ciphertext=?, token_iv=?, token_tag=?, coin_total=?, auth_status='valid', token_expires_at=?, last_validated_at=?, status='ready', last_message='', attempt_date=NULL, attempt_count=0, last_attempt_at=NULL, updated_at=? WHERE id=?`)
       .run(profile.username, encrypted.ciphertext, encrypted.iv, encrypted.tag, profile.coinTotal, profile.tokenExpiresAt || null, now, now, id);
     this.log(id, 'info', 'token_updated', '登录令牌已验证并更新');
     return publicAccount(this.getAccount(id));
   }
 
   setEnabled(id, enabled) {
-    const result = this.db.prepare('UPDATE accounts SET enabled=?, updated_at=? WHERE id=?').run(enabled ? 1 : 0, isoNow(), id);
+    const result = this.db.prepare('UPDATE accounts SET enabled=?, updated_at=? WHERE id=?').run(enabled ? 1 : 0, this.isoNow(), id);
     if (!result.changes) throw new Error('账号不存在');
     this.log(id, 'info', enabled ? 'account_enabled' : 'account_disabled', enabled ? '已启用自动签到' : '已暂停自动签到');
     return publicAccount(this.getAccount(id));
@@ -92,13 +94,13 @@ export class CheckinService {
     try {
       const token = decryptToken(account, this.encryptionKey);
       const profile = await this.client.validateToken(token);
-      const now = isoNow();
+      const now = this.isoNow();
       this.db.prepare(`UPDATE accounts SET username=?, coin_total=COALESCE(?, coin_total), auth_status='valid', token_expires_at=?, last_validated_at=?, last_message='登录状态正常', updated_at=? WHERE id=?`)
         .run(profile.username, profile.coinTotal, profile.tokenExpiresAt || null, now, now, id);
       this.log(id, 'success', 'auth_valid', '登录令牌验证成功');
       return publicAccount(this.getAccount(id));
     } catch (error) {
-      const now = isoNow();
+      const now = this.isoNow();
       const invalid = Number(error.status) === 401;
       this.db.prepare(`UPDATE accounts SET auth_status=?, last_validated_at=?, last_message=?, updated_at=? WHERE id=?`)
         .run(invalid ? 'invalid' : 'unknown', now, String(error.message || error).slice(0, 500), now, id);
@@ -113,8 +115,8 @@ export class CheckinService {
     const account = this.getAccount(id);
     if (!account) throw new Error('账号不存在');
     this.running.add(id);
-    const now = isoNow();
-    const local = localParts(this.timezone);
+    const now = this.isoNow();
+    const local = localParts(this.timezone, this.clock());
     const nextCount = account.attempt_date === local.date ? Number(account.attempt_count) + 1 : 1;
     this.db.prepare(`UPDATE accounts SET status='running', last_message=?, last_run_at=?, last_attempt_at=?, attempt_date=?, attempt_count=?, updated_at=? WHERE id=?`)
       .run(trigger === 'manual' ? '正在手动签到' : '正在自动签到', now, now, local.date, nextCount, now, id);
@@ -122,25 +124,27 @@ export class CheckinService {
 
     try {
       const token = decryptToken(account, this.encryptionKey);
-      const result = await this.client.checkIn(token);
-      let tokenFields = null;
-      if (result.tokenRefreshed) tokenFields = encryptToken(result.token, this.encryptionKey);
+      let savedToken = null;
+      const saveRefreshedToken = refreshedToken => {
+        const fields = encryptToken(refreshedToken, this.encryptionKey);
+        const expiry = jwtExpiry(refreshedToken);
+        this.db.prepare(`UPDATE accounts SET token_ciphertext=?, token_iv=?, token_tag=?, token_expires_at=?, updated_at=? WHERE id=?`)
+          .run(fields.ciphertext, fields.iv, fields.tag, expiry ? new Date(expiry).toISOString() : null, this.isoNow(), id);
+        savedToken = refreshedToken;
+      };
+      const result = await this.client.checkIn(token, { onTokenRefreshed: saveRefreshedToken });
+      if (result.tokenRefreshed && result.token !== savedToken) saveRefreshedToken(result.token);
       const message = result.status === 'success'
         ? `签到成功${result.earned === null ? '' : `，获得 ${result.earned} AK币`}`
         : '今日已经签到';
-      if (tokenFields) {
-        this.db.prepare(`UPDATE accounts SET token_ciphertext=?, token_iv=?, token_tag=?, status=?, auth_status='valid', last_message=?, coin_total=COALESCE(?, coin_total), last_success_at=?, last_validated_at=?, updated_at=? WHERE id=?`)
-          .run(tokenFields.ciphertext, tokenFields.iv, tokenFields.tag, result.status, message, result.coinTotal, isoNow(), isoNow(), isoNow(), id);
-      } else {
-        this.db.prepare(`UPDATE accounts SET status=?, auth_status='valid', last_message=?, coin_total=COALESCE(?, coin_total), last_success_at=?, last_validated_at=?, updated_at=? WHERE id=?`)
-          .run(result.status, message, result.coinTotal, isoNow(), isoNow(), isoNow(), id);
-      }
+      this.db.prepare(`UPDATE accounts SET status=?, auth_status='valid', last_message=?, coin_total=COALESCE(?, coin_total), last_success_at=?, last_validated_at=?, updated_at=? WHERE id=?`)
+        .run(result.status, message, result.coinTotal, this.isoNow(), this.isoNow(), this.isoNow(), id);
       this.log(id, 'success', result.status === 'success' ? 'checkin_success' : 'checkin_already', message);
       return publicAccount(this.getAccount(id));
     } catch (error) {
       const message = String(error.message || error).slice(0, 500);
       const authStatus = Number(error.status) === 401 ? 'invalid' : account.auth_status;
-      this.db.prepare(`UPDATE accounts SET status='error', auth_status=?, last_message=?, updated_at=? WHERE id=?`).run(authStatus, message, isoNow(), id);
+      this.db.prepare(`UPDATE accounts SET status='error', auth_status=?, last_message=?, updated_at=? WHERE id=?`).run(authStatus, message, this.isoNow(), id);
       this.log(id, 'error', 'checkin_failed', message);
       throw error;
     } finally {
@@ -148,11 +152,13 @@ export class CheckinService {
     }
   }
 
-  async runDueAccounts(now = new Date()) {
+  async runDueAccounts(now = this.clock()) {
     const local = localParts(this.timezone, now);
     if (local.time < this.checkinTime) return [];
     const accounts = this.db.prepare('SELECT * FROM accounts WHERE enabled=1 ORDER BY id').all();
     const due = accounts.filter(account => {
+      if (this.running.has(account.id) || account.auth_status === 'invalid') return false;
+      if (account.last_success_at && localParts(this.timezone, new Date(account.last_success_at)).date === local.date) return false;
       if (account.attempt_date !== local.date) return true;
       if (Number(account.attempt_count) >= 3) return false;
       if (!account.last_attempt_at) return true;

@@ -5,8 +5,8 @@ import express from 'express';
 import helmet from 'helmet';
 import { loadConfig } from './config.js';
 import { openDatabase } from './database.js';
-import { AkileClient } from './akile-client.js';
-import { CheckinService } from './checkin-service.js';
+import { AkileClient, AkileApiError } from './akile-client.js';
+import { CheckinService, localParts } from './checkin-service.js';
 import { cookies, makeSession, verifyPassword, verifySession } from './auth.js';
 
 const config = loadConfig();
@@ -65,7 +65,9 @@ function requireSameOrigin(req, res, next) {
   const origin = req.get('origin');
   if (origin) {
     try {
-      if (new URL(origin).host !== req.get('host')) return res.status(403).json({ error: '请求来源验证失败' });
+      const forwardedHost = req.get('x-forwarded-host')?.split(',')[0].trim();
+      const expected = config.publicOrigin || new URL(`${req.protocol}://${forwardedHost || req.get('host')}`).origin;
+      if (new URL(origin).origin !== expected) return res.status(403).json({ error: '请求来源验证失败' });
     } catch { return res.status(403).json({ error: '请求来源验证失败' }); }
   }
   next();
@@ -106,6 +108,7 @@ app.use('/api', requireAuth, requireSameOrigin);
 app.get('/api/status', (req, res) => res.json({
   checkinTime: config.checkinTime,
   timezone: config.timezone,
+  currentDate: localParts(config.timezone).date,
   accountCount: service.listAccounts().length
 }));
 app.get('/api/accounts', (req, res) => res.json({ accounts: service.listAccounts() }));
@@ -139,7 +142,8 @@ app.get('*splat', (req, res) => res.sendFile(path.join(publicDir, 'index.html'))
 app.use((error, req, res, next) => {
   const requestId = crypto.randomUUID().slice(0, 8);
   console.error(`[${requestId}]`, error);
-  const status = error.status === 401 ? 401 : 400;
+  // An expired Akile token must not log the operator out of this management panel.
+  const status = error instanceof AkileApiError ? 502 : (error.status === 401 ? 401 : 400);
   res.status(status).json({ error: String(error.message || '请求失败'), requestId });
 });
 
