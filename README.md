@@ -78,6 +78,8 @@ docker compose pull && docker compose up -d --build
 
 备份 `data/akile-checkin.sqlite` 和 `.env`。两者缺一不可：数据库保存密文，`.env` 中的 `TOKEN_ENCRYPTION_KEY` 用于解密。请把备份放在安全位置。
 
+仓库只发布通用源码和 `.env.example` 占位配置。真实 `.env`（包括备份和临时文件）、数据库、日志、备份目录、访问凭据及私钥已加入 Git 和 Docker 构建忽略规则。分享截图或运行记录前，也应移除账号、邮箱、令牌和私人部署地址。
+
 ## 验证方式
 
 2026-10-22 已在 InstaBox 的 Node 24 容器完成 20 项自动测试，并使用已授权账号验证真实签到、重复签到识别、令牌刷新与加密保存、重新部署后的数据保留。真实 Chromium 验证了 HTTPS 登录、刷新后会话保留、退出，以及桌面和手机布局。次日定时执行仍需等到实际计划时间观察。

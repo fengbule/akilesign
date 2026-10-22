@@ -1,4 +1,32 @@
 .env
+.env.*
+!.env.example
 data/
 node_modules/
 npm-debug.log*
+
+# Private runtime data, backups, and deployment artifacts.
+logs/
+backups/
+output/
+artifacts/
+*.log
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+
+# Credentials and private keys must stay outside the repository.
+credentials/
+credentials*.json
+credentials*.txt
+*凭据*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ecdsa
+id_ed25519
